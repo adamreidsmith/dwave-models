@@ -8,10 +8,12 @@ import matplotlib.pyplot as plt
 from dwave.system import DWaveSampler, EmbeddingComposite
 
 # Set the environment variable for your DWave API token
-dwave_api_path = '/Users/arsmith/Desktop/dwave_api_token.txt'
-with open(dwave_api_path, 'r') as f:
+with open('./dwave_api_token.txt', 'r') as f:
     os.environ['DWAVE_API_TOKEN'] = f.readline()
 
+# Define the graph representing the map
+
+# Here we define lables for each of the graph nodes
 provinces = {
     0: 'Yukon',
     1: 'British Columbia',
@@ -27,6 +29,8 @@ provinces = {
     11: 'Nova Scotia',
     12: 'Prince Edward Island',
 }
+
+# An edge connects regions that share a border
 edges = [
     (0, 1),
     (0, 2),
@@ -51,53 +55,50 @@ edges = [
     (10, 12),
     (11, 12),
 ]
-graph = nx.Graph()
-graph.add_edges_from(edges)
+canada_graph = nx.Graph()
+canada_graph.add_edges_from(edges)
 
-n_colours = 4
-n_regions = len(graph.nodes)
+# Set the number of colours to colour the graph
+n_colours = 3
+n_regions = len(canada_graph.nodes)
 
+# H_single is the Hamiltonian encoding the constraint that each region must have exactly one colour.
+# H_adj is the Hamiltonian encoding the constraint that neighbouring regions cannot have the same colour.
+# A and B are the constants of proportionality between H_single and H_adj.
+# We select A > B so that it is never favourable to break the single colour constraint in favour of the
+# adjacency constraint.
 A, B = 3, 1  # H = A * H_single + B * H_adj
 
-# Linear coefficients come from H_single
+# Our Ising model has n_regions * n_colours variables, s_(i,j), each in {-1, 1}.  The linear coefficients
+# are the coefficients in front of the s_(i,j) terms in the Hamiltonian, and the quadratic coefficients
+# are the coefficients in front of the s_(i,j) * s_(k,l) terms.
+
+# Linear coefficients come from H_single.
+# Note that
+# $\sum_{i=1}^N (n - 2 + \sum_{k=1}^n s_{i,k})^2$
+# $= C + \sum_{i=1}^N \sum_{k=1}^n 2(n - 2)s_{i,k} + \sum_{i=1}^N \sum_{k=1}^n \sum_{k=k+1}^n 2s_{i,k}s_{i,j}$
+# where $C$ is a constant that can be ignored.
 linear_coefficients = {indices: 2 * (n_colours - 2) * A for indices in product(range(n_regions), range(n_colours))}
 
 quadratic_coefficients = defaultdict(lambda: 0)
-# Add the coefficients from H_single
+# Add the contributions to the quadratic coefficients from H_single
 for i in range(n_regions):
     for k in range(n_colours):
         for j in range(k + 1, n_colours):
             quadratic_coefficients[((i, k), (i, j))] += 2 * A
 
-# Add the coefficients from H_adj
-for i, j in graph.edges:
+# Add the contributions to the quadratic coefficients from H_adj
+for i, j in canada_graph.edges:
     for k in range(n_colours):
         quadratic_coefficients[((i, k), (j, k))] += 1 * B
 
+# Instantiate the DWave sampler and sample from the Ising model
+sampler = DWaveSampler(solver={'qpu': True})
+sampler_embedded = EmbeddingComposite(sampler)
+response = sampler_embedded.sample_ising(linear_coefficients, quadratic_coefficients, num_reads=500)
 
-# sampler = DWaveSampler(solver={'qpu': True})
-# sampler_embedded = EmbeddingComposite(sampler)
-# response = sampler_embedded.sample_ising(linear_coefficients, quadratic_coefficients, num_reads=500)
-
-# best_solution = response.first.sample
-
-
-# fmt: off
-# Invalid solutions
-best_solution50 = {(0, 0): -1, (0, 1): 1, (0, 2): -1, (0, 3): -1, (1, 0): -1, (1, 1): -1, (1, 2): -1, (1, 3): 1, (2, 0): 1, (2, 1): -1, (2, 2): -1, (2, 3): -1, (3, 0): -1, (3, 1): -1, (3, 2): 1, (3, 3): -1, (4, 0): -1, (4, 1): -1, (4, 2): -1, (4, 3): 1, (5, 0): 1, (5, 1): -1, (5, 2): -1, (5, 3): -1, (6, 0): -1, (6, 1): -1, (6, 2): 1, (6, 3): -1, (7, 0): -1, (7, 1): 1, (7, 2): -1, (7, 3): -1, (8, 0): -1, (8, 1): -1, (8, 2): 1, (8, 3): -1, (9, 0): 1, (9, 1): -1, (9, 2): -1, (9, 3): -1, (10, 0): 1, (10, 1): -1, (10, 2): -1, (10, 3): -1, (11, 0): -1, (11, 1): -1, (11, 2): -1, (11, 3): 1, (12, 0): -1, (12, 1): 1, (12, 2): -1, (12, 3): -1}
-best_solution10 = {(0, 0): -1, (0, 1): -1, (0, 2): -1, (0, 3): 1, (1, 0): -1, (1, 1): -1, (1, 2): 1, (1, 3): -1, (2, 0): -1, (2, 1): 1, (2, 2): -1, (2, 3): -1, (3, 0): -1, (3, 1): -1, (3, 2): -1, (3, 3): 1, (4, 0): 1, (4, 1): -1, (4, 2): -1, (4, 3): -1, (5, 0): 1, (5, 1): -1, (5, 2): -1, (5, 3): -1, (6, 0): -1, (6, 1): 1, (6, 2): -1, (6, 3): -1, (7, 0): -1, (7, 1): -1, (7, 2): 1, (7, 3): -1, (8, 0): -1, (8, 1): -1, (8, 2): -1, (8, 3): 1, (9, 0): -1, (9, 1): -1, (9, 2): 1, (9, 3): -1, (10, 0): 1, (10, 1): -1, (10, 2): -1, (10, 3): -1, (11, 0): -1, (11, 1): -1, (11, 2): -1, (11, 3): 1, (12, 0): -1, (12, 1): -1, (12, 2): 1, (12, 3): -1}
-best_solution5_2 = {(0, 0): -1, (0, 1): 1, (0, 2): -1, (0, 3): -1, (1, 0): -1, (1, 1): -1, (1, 2): 1, (1, 3): -1, (2, 0): -1, (2, 1): -1, (2, 2): -1, (2, 3): 1, (3, 0): 1, (3, 1): -1, (3, 2): -1, (3, 3): -1, (4, 0): 1, (4, 1): -1, (4, 2): -1, (4, 3): -1, (5, 0): -1, (5, 1): -1, (5, 2): -1, (5, 3): 1, (6, 0): -1, (6, 1): -1, (6, 2): 1, (6, 3): -1, (7, 0): 1, (7, 1): -1, (7, 2): -1, (7, 3): -1, (8, 0): -1, (8, 1): 1, (8, 2): -1, (8, 3): -1, (9, 0): -1, (9, 1): -1, (9, 2): 1, (9, 3): -1, (10, 0): -1, (10, 1): -1, (10, 2): 1, (10, 3): -1, (11, 0): -1, (11, 1): 1, (11, 2): -1, (11, 3): -1, (12, 0): 1, (12, 1): -1, (12, 2): -1, (12, 3): -1}
-
-# Valid solutions
-best_solution5 = {(0, 0): -1, (0, 1): -1, (0, 2): 1, (0, 3): -1, (1, 0): 1, (1, 1): -1, (1, 2): -1, (1, 3): -1, (2, 0): -1, (2, 1): -1, (2, 2): -1, (2, 3): 1, (3, 0): -1, (3, 1): 1, (3, 2): -1, (3, 3): -1, (4, 0): -1, (4, 1): 1, (4, 2): -1, (4, 3): -1, (5, 0): -1, (5, 1): -1, (5, 2): 1, (5, 3): -1, (6, 0): 1, (6, 1): -1, (6, 2): -1, (6, 3): -1, (7, 0): -1, (7, 1): -1, (7, 2): -1, (7, 3): 1, (8, 0): -1, (8, 1): -1, (8, 2): 1, (8, 3): -1, (9, 0): -1, (9, 1): 1, (9, 2): -1, (9, 3): -1, (10, 0): -1, (10, 1): 1, (10, 2): -1, (10, 3): -1, (11, 0): -1, (11, 1): -1, (11, 2): 1, (11, 3): -1, (12, 0): 1, (12, 1): -1, (12, 2): -1, (12, 3): -1}
-best_solution3 = {(0, 0): -1, (0, 1): -1, (0, 2): -1, (0, 3): 1, (1, 0): 1, (1, 1): -1, (1, 2): -1, (1, 3): -1, (2, 0): -1, (2, 1): -1, (2, 2): 1, (2, 3): -1, (3, 0): -1, (3, 1): 1, (3, 2): -1, (3, 3): -1, (4, 0): -1, (4, 1): 1, (4, 2): -1, (4, 3): -1, (5, 0): 1, (5, 1): -1, (5, 2): -1, (5, 3): -1, (6, 0): -1, (6, 1): -1, (6, 2): 1, (6, 3): -1, (7, 0): -1, (7, 1): -1, (7, 2): -1, (7, 3): 1, (8, 0): 1, (8, 1): -1, (8, 2): -1, (8, 3): -1, (9, 0): -1, (9, 1): -1, (9, 2): 1, (9, 3): -1, (10, 0): -1, (10, 1): 1, (10, 2): -1, (10, 3): -1, (11, 0): 1, (11, 1): -1, (11, 2): -1, (11, 3): -1, (12, 0): -1, (12, 1): -1, (12, 2): -1, (12, 3): 1}
-best_solution3_2 = {(0, 0): -1, (0, 1): 1, (0, 2): -1, (0, 3): -1, (1, 0): -1, (1, 1): -1, (1, 2): 1, (1, 3): -1, (2, 0): 1, (2, 1): -1, (2, 2): -1, (2, 3): -1, (3, 0): -1, (3, 1): -1, (3, 2): -1, (3, 3): 1, (4, 0): -1, (4, 1): -1, (4, 2): -1, (4, 3): 1, (5, 0): -1, (5, 1): -1, (5, 2): 1, (5, 3): -1, (6, 0): -1, (6, 1): 1, (6, 2): -1, (6, 3): -1, (7, 0): -1, (7, 1): -1, (7, 2): -1, (7, 3): 1, (8, 0): 1, (8, 1): -1, (8, 2): -1, (8, 3): -1, (9, 0): -1, (9, 1): 1, (9, 2): -1, (9, 3): -1, (10, 0): -1, (10, 1): 1, (10, 2): -1, (10, 3): -1, (11, 0): 1, (11, 1): -1, (11, 2): -1, (11, 3): -1, (12, 0): -1, (12, 1): -1, (12, 2): -1, (12, 3): 1}
-best_solution3_3 = {(0, 0): -1, (0, 1): -1, (0, 2): -1, (0, 3): 1, (1, 0): 1, (1, 1): -1, (1, 2): -1, (1, 3): -1, (2, 0): -1, (2, 1): 1, (2, 2): -1, (2, 3): -1, (3, 0): -1, (3, 1): -1, (3, 2): -1, (3, 3): 1, (4, 0): -1, (4, 1): -1, (4, 2): -1, (4, 3): 1, (5, 0): -1, (5, 1): -1, (5, 2): 1, (5, 3): -1, (6, 0): 1, (6, 1): -1, (6, 2): -1, (6, 3): -1, (7, 0): -1, (7, 1): -1, (7, 2): -1, (7, 3): 1, (8, 0): -1, (8, 1): -1, (8, 2): 1, (8, 3): -1, (9, 0): -1, (9, 1): 1, (9, 2): -1, (9, 3): -1, (10, 0): -1, (10, 1): 1, (10, 2): -1, (10, 3): -1, (11, 0): -1, (11, 1): -1, (11, 2): 1, (11, 3): -1, (12, 0): -1, (12, 1): -1, (12, 2): -1, (12, 3): 1}
-best_solution3_4 = {(0, 0): -1, (0, 1): 1, (0, 2): -1, (0, 3): -1, (1, 0): 1, (1, 1): -1, (1, 2): -1, (1, 3): -1, (2, 0): -1, (2, 1): -1, (2, 2): 1, (2, 3): -1, (3, 0): -1, (3, 1): 1, (3, 2): -1, (3, 3): -1, (4, 0): -1, (4, 1): 1, (4, 2): -1, (4, 3): -1, (5, 0): 1, (5, 1): -1, (5, 2): -1, (5, 3): -1, (6, 0): -1, (6, 1): -1, (6, 2): -1, (6, 3): 1, (7, 0): 1, (7, 1): -1, (7, 2): -1, (7, 3): -1, (8, 0): -1, (8, 1): -1, (8, 2): 1, (8, 3): -1, (9, 0): -1, (9, 1): 1, (9, 2): -1, (9, 3): -1, (10, 0): 1, (10, 1): -1, (10, 2): -1, (10, 3): -1, (11, 0): -1, (11, 1): -1, (11, 2): 1, (11, 3): -1, (12, 0): -1, (12, 1): -1, (12, 2): -1, (12, 3): 1}
-best_solution3_5 = {(0, 0): 1, (0, 1): -1, (0, 2): -1, (0, 3): -1, (1, 0): -1, (1, 1): -1, (1, 2): 1, (1, 3): -1, (2, 0): -1, (2, 1): 1, (2, 2): -1, (2, 3): -1, (3, 0): 1, (3, 1): -1, (3, 2): -1, (3, 3): -1, (4, 0): 1, (4, 1): -1, (4, 2): -1, (4, 3): -1, (5, 0): -1, (5, 1): -1, (5, 2): -1, (5, 3): 1, (6, 0): -1, (6, 1): -1, (6, 2): 1, (6, 3): -1, (7, 0): 1, (7, 1): -1, (7, 2): -1, (7, 3): -1, (8, 0): -1, (8, 1): -1, (8, 2): 1, (8, 3): -1, (9, 0): 1, (9, 1): -1, (9, 2): -1, (9, 3): -1, (10, 0): 1, (10, 1): -1, (10, 2): -1, (10, 3): -1, (11, 0): -1, (11, 1): 1, (11, 2): -1, (11, 3): -1, (12, 0): -1, (12, 1): -1, (12, 2): -1, (12, 3): 1}
-# fmt: on
-
-best_solution = best_solution3_5
+# Get the lowest energy solution
+best_solution = response.first.sample
 
 # Check that we have distinct colour for each region
 for i in range(n_regions):
@@ -111,12 +112,13 @@ print('Each region has a distinct colour!')
 region_colours = [np.argmax([best_solution[(i, k)] for k in range(n_colours)]) for i in range(n_regions)]
 
 # Check that adjacent regions don't have the same colour
-for i, j in graph.edges:
+for i, j in canada_graph.edges:
     assert (
         region_colours[i] != region_colours[j]
     ), f'{provinces[i]} and {provinces[j]} share a border but have the same colour!'
 print('No neighbouring regions have the same colour!')
 
+# Plot the graph of the solution
 colour_strings = [
     'blue',
     'green',
@@ -136,8 +138,8 @@ colour_strings = [
     'hotpink',
 ]
 colour_map = []
-for node in graph:
+for node in canada_graph:
     colour_map.append(colour_strings[region_colours[node]])
 
-nx.draw(graph, node_color=colour_map, with_labels=True, labels=provinces)
+nx.draw(canada_graph, node_color=colour_map, with_labels=True, labels=provinces)
 plt.show()
