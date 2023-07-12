@@ -76,7 +76,7 @@ A, B = 3, 1  # H = A * H_single + B * H_adj
 # Linear coefficients come from H_single.
 # Note that
 # $\sum_{i=1}^N (n - 2 + \sum_{k=1}^n s_{i,k})^2$
-# $= C + \sum_{i=1}^N \sum_{k=1}^n 2(n - 2)s_{i,k} + \sum_{i=1}^N \sum_{k=1}^n \sum_{k=k+1}^n 2s_{i,k}s_{i,j}$
+# $= C + \sum_{i=1}^N \sum_{k=1}^n 2(n - 2)s_{i,k} + \sum_{i=1}^N \sum_{k=1}^n \sum_{j=k+1}^n 2s_{i,k}s_{i,j}$
 # where $C$ is a constant that can be ignored.
 linear_coefficients = {indices: 2 * (n_colours - 2) * A for indices in product(range(n_regions), range(n_colours))}
 
