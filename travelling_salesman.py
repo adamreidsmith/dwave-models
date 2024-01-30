@@ -1,11 +1,13 @@
 from collections import defaultdict
 from itertools import product
-import os
 import random
+import time
+
 import networkx as nx
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
+from dotenv import load_dotenv
 
 import osmnx as ox
 import geopandas as gpd
@@ -13,15 +15,16 @@ from shapely.geometry import Point
 
 from dwave.system import DWaveSampler, EmbeddingComposite
 
+
 # Set the environment variable for your DWave API token
-with open('./dwave_api_token.txt', 'r') as f:
-    os.environ['DWAVE_API_TOKEN'] = f.readline()
+load_dotenv()
 
-SEED = 11223344550
+SEED = 12345678
 random.seed(SEED)
+CMAXP = 9
 
-A, B = 100, 1
-NUM_READS = 500
+A, B = 50, 1
+NUM_READS = 2000
 
 # Number of random points in the city of Calgary on which we will compute the solution of the TSP.
 # Due to the limited connectivity of the chimera graph of the D-Wave QPU, this must be kept fairly low in order
@@ -40,6 +43,7 @@ calgary_graph = ox.graph_from_bbox(maxy, miny, maxx, minx, network_type='drive')
 
 # Generate n_points random points within the city of Calgary
 points = set()
+point_coords = {}
 while len(points) < n_points:
     point = Point(random.uniform(minx, maxx), random.uniform(miny, maxy))
     if not any(city.geometry.contains(point)):
@@ -48,6 +52,7 @@ while len(points) < n_points:
     nearest_node = ox.nearest_nodes(calgary_graph, point.x, point.y)
     if nearest_node not in points:
         points.add(nearest_node)
+        point_coords[nearest_node] = (point.x, point.y)
 points = list(points)
 
 # Compute the shortest paths between each pair of points
@@ -111,7 +116,9 @@ for u, v in product(range(n_points), range(n_points)):
 # Instantiate the DWave sampler and sample from the QUBO model
 sampler = DWaveSampler(solver={'qpu': True})
 sampler_embedded = EmbeddingComposite(sampler)
+t0 = time.perf_counter()
 response = sampler_embedded.sample_qubo(QUBO_matrix, num_reads=NUM_READS)
+print(f'DWave solution time: {time.perf_counter() - t0}')
 
 solution = response.first.sample
 
@@ -127,7 +134,7 @@ for i in range(n_points):
     s = 0
     for v in range(n_points):
         s += solution[(v, i)]
-    assert s == 1, f'Step {i} is not associated to exaclty one node!'
+    assert s == 1, f'Step {i} is not associated to exactly one node!'
 print('The solution represents a valid path!')
 
 # Get the nodes associated with the TSP route
@@ -149,9 +156,11 @@ print(
 )
 
 # Check if the solution provided by networkx agrees with our solution
-if n_points < 8:
+if n_points < CMAXP:
     print('Computing networkx solution...')
+    t0 = time.perf_counter()
     nx_solution = nx.algorithms.approximation.traveling_salesman_problem(tsp_graph, weight='weight', nodes=points)[:-1]
+    print(f'Networkx solution time: {time.perf_counter() - t0}')
     for i in range(n_points):
         if path[i:] + path[:i] == nx_solution:
             print('Solution agrees with networkx!')
@@ -166,20 +175,31 @@ if n_points < 8:
         )
         print(fail_str)
         nx_path_length = sum(
-            tsp_graph.edges[nx_solution[i], nx_solution[(i + 1) % n_points]]["weight"] for i in range(n_points)
+            tsp_graph.edges[nx_solution[i], nx_solution[(i + 1) % n_points]]['weight'] for i in range(n_points)
         )
         print(f'Networkx path length: {nx_path_length:.3f} km')
 
 # Plot the solution
 route = [shortest_path_dict[(path[i], path[(i + 1) % n_points])] for i in range(n_points)]
 route_colors = ['red'] * n_points
-if n_points < 8:
+if n_points < CMAXP:
     route = [shortest_path_dict[(nx_solution[i], nx_solution[(i + 1) % n_points])] for i in range(n_points)] + route
     route_colors = (['green'] * n_points) + route_colors
-ox.plot_graph_routes(calgary_graph, route, route_colors=route_colors, show=False, close=False)
+fig, ax = ox.plot_graph_routes(
+    calgary_graph,
+    route,
+    route_colors=route_colors,
+    show=False,
+    close=False,
+    node_size=0,
+    route_linewidths=3,
+    edge_linewidth=0.5,
+)
+ax.set_facecolor('white')
 
 legend_handles = [mlines.Line2D([], [], color='red', marker='_', markersize=15, label='Quantum solution')]
-if n_points < 8:
+if n_points < CMAXP:
     legend_handles.append(mlines.Line2D([], [], color='green', marker='_', markersize=15, label='networkx solution'))
 plt.legend(handles=legend_handles, loc='upper right')
 plt.show()
+# plt.savefig('tsp.png', dpi=1000)

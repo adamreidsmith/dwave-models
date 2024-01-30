@@ -1,4 +1,4 @@
-dwave_api_token.txt
+.env
 __pycache__
 .DS_Store
 cache
